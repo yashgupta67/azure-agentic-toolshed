@@ -1,0 +1,212 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this before executing any step of an autonomous or multi-step agent loop (before each reasoning step, tool call, or retry). It enforces a hard budget on how many steps a single agent session may take, preventing runaway loops. Pass a session_id that uniquely identifies the current agent conversation or run; this tool increments that session's step counter and reports whether the session is still within budget. If the response has allowed: false, you MUST stop the loop immediately and return the 'reason' field to the user or calling agent instead of taking further action — do not call this tool merely to check status without intending to honor a stop response. Call loop-budget-reset once at the start of a new session before the first call to this tool, or it will inherit a stale counter from a previous run.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "A unique identifier for the current agent session or conversation. Reuse the exact same value across every step of the same loop so the budget is tracked correctly. Use a new, different value for a new conversation."
+              },
+              "max_steps": {
+                "type": "integer",
+                "description": "The maximum number of steps allowed for this session before this tool reports allowed: false. Optional — if omitted, defaults to 25. Only meaningful on the first call for a session (when no row exists yet); later calls should omit it and rely on the value set at loop-budget-reset time."
+              }
+            },
+            "required": [
+              "session_id"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_new_step_count": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "new_step_count",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Initialize_effective_max_steps": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "effective_max_steps",
+              "type": "integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_new_step_count": ["Succeeded"]
+        }
+      },
+      "Get_Entity": {
+        "type": "ServiceProvider",
+        "description": "UNVERIFIED SHAPE — this is a best-effort reconstruction of the Azure Tables built-in connector's 'Get Entity' action, not confirmed against a live deployment. If this action shows an error in the designer after pasting (e.g. a red exclamation mark, or 'invalid template' on save), delete just this action and re-add 'Azure Tables -> Get Entity' via the designer's connector picker instead, filling in: Table name = LoopBudgets, Partition key = session, Row key = the expression triggerBody()?['session_id']. Everything else in this file does not depend on the internals of this action, only on its outputs, so replacing just this one action is safe.",
+        "inputs": {
+          "parameters": {
+            "tableName": "LoopBudgets",
+            "partitionKey": "session",
+            "rowKey": "@triggerBody()?['session_id']"
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "getEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": {
+          "Initialize_effective_max_steps": ["Succeeded"]
+        }
+      },
+      "Was_Found": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "equals": ["@actions('Get_Entity')['status']", "Succeeded"]
+            }
+          ]
+        },
+        "actions": {
+          "Set_new_step_count_from_existing": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "new_step_count",
+              "value": "@add(int(coalesce(outputs('Get_Entity')?['body']?['StepCount'], 0)), 1)"
+            },
+            "runAfter": {}
+          },
+          "Set_effective_max_steps_from_existing": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "effective_max_steps",
+              "value": "@int(coalesce(outputs('Get_Entity')?['body']?['MaxSteps'], 25))"
+            },
+            "runAfter": {
+              "Set_new_step_count_from_existing": ["Succeeded"]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Set_new_step_count_first_call": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "new_step_count",
+                "value": 1
+              },
+              "runAfter": {}
+            },
+            "Set_effective_max_steps_first_call": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "effective_max_steps",
+                "value": "@int(coalesce(triggerBody()?['max_steps'], 25))"
+              },
+              "runAfter": {
+                "Set_new_step_count_first_call": ["Succeeded"]
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Get_Entity": ["Succeeded", "Failed"]
+        }
+      },
+      "Insert_or_Update_Entity": {
+        "type": "ServiceProvider",
+        "description": "UNVERIFIED SHAPE — same caveat as Get_Entity above. Fallback if this errors: re-add 'Azure Tables -> Insert or Update Entity' via the designer, Table name = LoopBudgets, Partition key = session, Row key = triggerBody()?['session_id'], then set the entity properties StepCount/MaxSteps/LastUpdated to the expressions shown in this action's 'entity' parameter below.",
+        "inputs": {
+          "parameters": {
+            "tableName": "LoopBudgets",
+            "entity": {
+              "PartitionKey": "session",
+              "RowKey": "@triggerBody()?['session_id']",
+              "StepCount": "@variables('new_step_count')",
+              "MaxSteps": "@variables('effective_max_steps')",
+              "LastUpdated": "@utcNow()"
+            }
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "upsertEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": {
+          "Was_Found": ["Succeeded"]
+        }
+      },
+      "Exceeded_Budget": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "greater": ["@variables('new_step_count')", "@variables('effective_max_steps')"]
+            }
+          ]
+        },
+        "actions": {
+          "Response_Stop": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 200,
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "allowed": false,
+                "steps_used": "@variables('new_step_count')",
+                "steps_remaining": 0,
+                "max_steps": "@variables('effective_max_steps')",
+                "reason": "Step budget exceeded for this session. Halt the loop and report this to the user instead of continuing."
+              }
+            },
+            "runAfter": {}
+          }
+        },
+        "else": {
+          "actions": {
+            "Response_Continue": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "headers": { "Content-Type": "application/json" },
+                "body": {
+                  "allowed": true,
+                  "steps_used": "@variables('new_step_count')",
+                  "steps_remaining": "@sub(variables('effective_max_steps'), variables('new_step_count'))",
+                  "max_steps": "@variables('effective_max_steps')",
+                  "reason": null
+                }
+              },
+              "runAfter": {}
+            }
+          }
+        },
+        "runAfter": {
+          "Insert_or_Update_Entity": ["Succeeded"]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

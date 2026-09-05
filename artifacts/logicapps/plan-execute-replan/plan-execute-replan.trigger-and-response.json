@@ -1,0 +1,252 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this when a task needs to be broken into multiple ordered steps and executed as a sequence, where a single step failing should trigger replanning the remaining steps rather than aborting the whole task. Do not use this for a task that is already a single, well-defined action — call the relevant tool for that action directly instead. Do not use this for an open-ended autonomous loop with no natural decomposition into a finite number of steps — use loop-budget-check with your own loop logic for that case instead. Read the returned 'steps_executed' and 'replans_used' fields to see the actual path taken, not just 'final_result'.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "task": { "type": "string", "description": "The overall task to decompose and execute." },
+              "context": { "type": "string", "description": "Background information or constraints relevant to planning and executing the steps. Optional." },
+              "max_steps": { "type": "integer", "description": "Hard cap on the total number of steps executed, across all replans. Optional — defaults to 8." },
+              "max_replans": { "type": "integer", "description": "How many times the tool may regenerate the remaining plan after a step fails, before giving up and returning partial results. Optional — defaults to 2." }
+            },
+            "required": ["task"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_remaining_steps": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "remaining_steps", "type": "array", "value": [] } ] },
+        "runAfter": {}
+      },
+      "Initialize_completed_results": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "completed_results", "type": "array", "value": [] } ] },
+        "runAfter": { "Initialize_remaining_steps": ["Succeeded"] }
+      },
+      "Initialize_replans_used": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "replans_used", "type": "integer", "value": 0 } ] },
+        "runAfter": { "Initialize_completed_results": ["Succeeded"] }
+      },
+      "Initialize_stopped_reason": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "stopped_reason", "type": "string", "value": "" } ] },
+        "runAfter": { "Initialize_replans_used": ["Succeeded"] }
+      },
+      "Generate_Plan": {
+        "type": "ServiceProvider",
+        "description": "Verified against Microsoft's Azure OpenAI connector reference — see reflection-loop's README for the connection bootstrap. Replace REPLACE_WITH_YOUR_DEPLOYMENT_NAME below.",
+        "inputs": {
+          "parameters": {
+            "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+            "messages": [
+              {
+                "role": "system",
+                "content": "@concat('Decompose this task into an ordered JSON array of short step descriptions (strings), at most ', string(coalesce(triggerBody()?['max_steps'], 8)), ' steps. Task: ', triggerBody()?['task'], '. Context: ', coalesce(triggerBody()?['context'], 'none'), '. Respond with ONLY a JSON array of strings, nothing else.')"
+              }
+            ],
+            "temperature": 0.3
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureOpenAI",
+            "operationId": "getChatCompletions",
+            "serviceProviderId": "/serviceProviders/openai"
+          }
+        },
+        "runAfter": { "Initialize_stopped_reason": ["Succeeded"] }
+      },
+      "Parse_Plan": {
+        "type": "ParseJson",
+        "inputs": {
+          "content": "@coalesce(outputs('Generate_Plan')?['body']?['content'], '[]')",
+          "schema": { "type": "array", "items": { "type": "string" } }
+        },
+        "runAfter": { "Generate_Plan": ["Succeeded"] }
+      },
+      "Set_remaining_steps_from_plan": {
+        "type": "SetVariable",
+        "inputs": { "name": "remaining_steps", "value": "@body('Parse_Plan')" },
+        "runAfter": { "Parse_Plan": ["Succeeded"] }
+      },
+      "Until_Plan_Complete": {
+        "type": "Until",
+        "expression": "@or(empty(variables('remaining_steps')), greaterOrEquals(length(variables('completed_results')), coalesce(triggerBody()?['max_steps'], 8)))",
+        "limit": { "count": 20, "timeout": "PT15M" },
+        "actions": {
+          "Execute_Step": {
+            "type": "ServiceProvider",
+            "description": "Same verified shape as Generate_Plan above.",
+            "inputs": {
+              "parameters": {
+                "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "@concat('Execute this single step of a larger task. Overall task: ', triggerBody()?['task'], '. This step: ', first(variables('remaining_steps')), '. Prior completed results (JSON): ', string(variables('completed_results')), '. Respond with ONLY strict JSON: {\"status\": \"success\" or \"failure\", \"result\": \"<text>\", \"error\": \"<text or null>\"}.')"
+                  }
+                ],
+                "temperature": 0.4
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureOpenAI",
+                "operationId": "getChatCompletions",
+                "serviceProviderId": "/serviceProviders/openai"
+              }
+            },
+            "runAfter": {}
+          },
+          "Parse_Step_Result": {
+            "type": "ParseJson",
+            "inputs": {
+              "content": "@coalesce(outputs('Execute_Step')?['body']?['content'], '{\"status\":\"failure\",\"result\":\"\",\"error\":\"parse failed\"}')",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": { "type": "string" },
+                  "result": { "type": "string" },
+                  "error": { "type": ["string", "null"] }
+                }
+              }
+            },
+            "runAfter": { "Execute_Step": ["Succeeded"] }
+          },
+          "Step_Succeeded": {
+            "type": "If",
+            "expression": { "and": [ { "equals": ["@body('Parse_Step_Result')?['status']", "success"] } ] },
+            "actions": {
+              "Append_Result": {
+                "type": "AppendToArrayVariable",
+                "inputs": {
+                  "name": "completed_results",
+                  "value": { "step": "@first(variables('remaining_steps'))", "result": "@body('Parse_Step_Result')?['result']" }
+                },
+                "runAfter": {}
+              },
+              "Drop_Completed_Step": {
+                "type": "SetVariable",
+                "inputs": { "name": "remaining_steps", "value": "@skip(variables('remaining_steps'), 1)" },
+                "runAfter": { "Append_Result": ["Succeeded"] }
+              }
+            },
+            "else": {
+              "actions": {
+                "Can_Still_Replan": {
+                  "type": "If",
+                  "expression": { "and": [ { "less": ["@variables('replans_used')", "@coalesce(triggerBody()?['max_replans'], 2)"] } ] },
+                  "actions": {
+                    "Replan_Remaining": {
+                      "type": "ServiceProvider",
+                      "description": "Same verified shape as Generate_Plan above.",
+                      "inputs": {
+                        "parameters": {
+                          "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                          "messages": [
+                            {
+                              "role": "system",
+                              "content": "@concat('A step failed while executing a larger task. Overall task: ', triggerBody()?['task'], '. Failed step: ', first(variables('remaining_steps')), '. Failure reason: ', body('Parse_Step_Result')?['error'], '. Completed so far (JSON): ', string(variables('completed_results')), '. Produce a revised ORDERED JSON array of remaining step descriptions (strings) that works around the failure. Respond with ONLY a JSON array of strings.')"
+                            }
+                          ],
+                          "temperature": 0.4
+                        },
+                        "serviceProviderConfiguration": {
+                          "connectionName": "azureOpenAI",
+                          "operationId": "getChatCompletions",
+                          "serviceProviderId": "/serviceProviders/openai"
+                        }
+                      },
+                      "runAfter": {}
+                    },
+                    "Parse_Replan": {
+                      "type": "ParseJson",
+                      "inputs": {
+                        "content": "@coalesce(outputs('Replan_Remaining')?['body']?['content'], '[]')",
+                        "schema": { "type": "array", "items": { "type": "string" } }
+                      },
+                      "runAfter": { "Replan_Remaining": ["Succeeded"] }
+                    },
+                    "Set_remaining_steps_from_replan": {
+                      "type": "SetVariable",
+                      "inputs": { "name": "remaining_steps", "value": "@body('Parse_Replan')" },
+                      "runAfter": { "Parse_Replan": ["Succeeded"] }
+                    },
+                    "Increment_Replans_Used": {
+                      "type": "IncrementVariable",
+                      "inputs": { "name": "replans_used", "value": 1 },
+                      "runAfter": { "Set_remaining_steps_from_replan": ["Succeeded"] }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Set_stopped_reason_replan_exhausted": {
+                        "type": "SetVariable",
+                        "inputs": { "name": "stopped_reason", "value": "step failed, replan budget exhausted" },
+                        "runAfter": {}
+                      },
+                      "Clear_remaining_steps": {
+                        "type": "SetVariable",
+                        "inputs": { "name": "remaining_steps", "value": [] },
+                        "runAfter": { "Set_stopped_reason_replan_exhausted": ["Succeeded"] }
+                      }
+                    }
+                  },
+                  "runAfter": {}
+                }
+              }
+            },
+            "runAfter": { "Parse_Step_Result": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Set_remaining_steps_from_plan": ["Succeeded"] }
+      },
+      "Synthesize_Final_Result": {
+        "type": "ServiceProvider",
+        "description": "Same verified shape as Generate_Plan above.",
+        "inputs": {
+          "parameters": {
+            "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+            "messages": [
+              {
+                "role": "system",
+                "content": "@concat('Synthesize a final answer for this task from the completed step results. Task: ', triggerBody()?['task'], '. Completed results (JSON): ', string(variables('completed_results')), '. Respond with only the final answer text.')"
+              }
+            ],
+            "temperature": 0.3
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureOpenAI",
+            "operationId": "getChatCompletions",
+            "serviceProviderId": "/serviceProviders/openai"
+          }
+        },
+        "runAfter": { "Until_Plan_Complete": ["Succeeded"] }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "headers": { "Content-Type": "application/json" },
+          "body": {
+            "completed": "@empty(variables('stopped_reason'))",
+            "final_result": "@coalesce(outputs('Synthesize_Final_Result')?['body']?['content'], '')",
+            "steps_executed": "@variables('completed_results')",
+            "replans_used": "@variables('replans_used')",
+            "stopped_reason": "@if(empty(variables('stopped_reason')), 'completed', variables('stopped_reason'))"
+          }
+        },
+        "runAfter": { "Synthesize_Final_Result": ["Succeeded"] }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

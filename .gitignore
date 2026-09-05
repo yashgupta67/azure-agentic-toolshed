@@ -1,0 +1,10 @@
+site/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+*.log
+.env
+.env.*
+bicepconfig.json.bak

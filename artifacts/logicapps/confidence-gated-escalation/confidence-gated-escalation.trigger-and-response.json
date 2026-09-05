@@ -1,0 +1,81 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this after producing a candidate answer or decision when you have a confidence score for it (e.g. from debate-consensus's agreement_rate, or a model's own self-reported confidence). If the score is at or above the threshold, this tool passes the answer through unchanged. If it is below threshold, this tool packages the question, candidate answer, and confidence score, sends it to a human via Teams for review, and returns the human's decision as the final answer instead. Use this as the last step before an agent commits to and acts on an uncertain answer or decision — it is not a substitute for an approval gate on a side-effecting action.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string", "description": "The original question or decision the candidate_answer is responding to. Included so the human reviewer has full context." },
+              "candidate_answer": { "type": "string", "description": "The answer or decision produced so far, which may or may not be escalated depending on confidence_score." },
+              "confidence_score": { "type": "number", "description": "A 0-1 confidence score for candidate_answer. Typically the agreement_rate from debate-consensus, or a model's own self-reported confidence." },
+              "confidence_threshold": { "type": "number", "description": "The minimum confidence_score at or above which the answer passes through without escalation. Optional — defaults to 0.7." }
+            },
+            "required": ["question", "candidate_answer", "confidence_score"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Needs_Escalation": {
+        "type": "If",
+        "expression": {
+          "and": [
+            { "less": ["@triggerBody()?['confidence_score']", "@coalesce(triggerBody()?['confidence_threshold'], 0.7)"] }
+          ]
+        },
+        "actions": {
+          "COMMENT_Teams_Adaptive_Card": {
+            "type": "Compose",
+            "description": "REQUIRES A DESIGNER STEP — verified operation is Teams connector 'Post an Adaptive Card and wait for a response' (operationId PostCardAndWaitForResponse), a managed connector with a dynamic response schema that depends on the card you design, so it genuinely can't be pasted as fixed JSON like the Azure Tables/OpenAI actions elsewhere in this repo. Requires the Workflows (Power Automate) app enabled in your Teams tenant. Delete this Compose action and replace it via the designer: search 'Teams', pick 'Post an Adaptive Card and wait for a response', sign in when prompted. Fill in: Post as = Flow bot, Post in = your review channel, Adaptive Card = question/candidate_answer/confidence_score as text plus an 'Approve as-is' button and a free-text field (id it 'providedAnswer' to match the Response action below), timeout = a few hours. Rename the action to Post_Adaptive_Card_And_Wait.",
+            "inputs": "add-teams-action-via-designer-see-description",
+            "runAfter": {}
+          },
+          "Response_Escalated": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 200,
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "final_answer": "@coalesce(body('Post_Adaptive_Card_And_Wait')?['data']?['providedAnswer'], triggerBody()?['candidate_answer'])",
+                "was_escalated": true,
+                "human_decision": "@body('Post_Adaptive_Card_And_Wait')?['data']",
+                "confidence_score": "@triggerBody()?['confidence_score']"
+              }
+            },
+            "description": "The exact property path into the Teams action's response (here guessed as body(...)?['data']?['providedAnswer']) depends entirely on how you name the fields in your Adaptive Card in the designer step above — adjust this expression to match your card's actual field names once built.",
+            "runAfter": { "COMMENT_Teams_Adaptive_Card": ["Succeeded"] }
+          }
+        },
+        "else": {
+          "actions": {
+            "Response_Pass_Through": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "headers": { "Content-Type": "application/json" },
+                "body": {
+                  "final_answer": "@triggerBody()?['candidate_answer']",
+                  "was_escalated": false,
+                  "human_decision": null,
+                  "confidence_score": "@triggerBody()?['confidence_score']"
+                }
+              },
+              "runAfter": {}
+            }
+          }
+        },
+        "runAfter": {}
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

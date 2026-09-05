@@ -1,0 +1,151 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Iteratively critique and revise a draft answer using an LLM judge until it scores well enough or iterations run out.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "task": { "type": "string" },
+              "draft_instructions": { "type": "string" },
+              "max_iterations": { "type": "integer" },
+              "score_threshold": { "type": "number" }
+            },
+            "required": ["task"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_iteration": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "iteration", "type": "integer", "value": 0 } ] },
+        "runAfter": {}
+      },
+      "Initialize_current_draft": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "current_draft", "type": "string", "value": "" } ] },
+        "runAfter": { "Initialize_iteration": ["Succeeded"] }
+      },
+      "Initialize_last_critique": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "last_critique", "type": "string", "value": "none yet" } ] },
+        "runAfter": { "Initialize_current_draft": ["Succeeded"] }
+      },
+      "Initialize_current_score": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "current_score", "type": "float", "value": 0 } ] },
+        "runAfter": { "Initialize_last_critique": ["Succeeded"] }
+      },
+      "Until_Good_Enough_Or_Out_Of_Iterations": {
+        "type": "Until",
+        "expression": "@or(greaterOrEquals(variables('iteration'), coalesce(triggerBody()?['max_iterations'], 3)), greaterOrEquals(variables('current_score'), coalesce(triggerBody()?['score_threshold'], 0.8)))",
+        "limit": { "count": 10, "timeout": "PT10M" },
+        "actions": {
+          "Generate_Or_Revise_Draft": {
+            "type": "ServiceProvider",
+            "inputs": {
+              "parameters": {
+                "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "@concat('Task: ', triggerBody()?['task'], '. Constraints: ', coalesce(triggerBody()?['draft_instructions'], 'none'), '. Previous critique: ', variables('last_critique'), '. Previous draft: ', variables('current_draft'), '. Respond with only the draft text.')"
+                  }
+                ],
+                "temperature": 0.7
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureOpenAI",
+                "operationId": "getChatCompletions",
+                "serviceProviderId": "/serviceProviders/openai"
+              }
+            },
+            "runAfter": {}
+          },
+          "Set_current_draft": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "current_draft",
+              "value": "@coalesce(outputs('Generate_Or_Revise_Draft')?['body']?['choices']?[0]?['message']?['content'], '')"
+            },
+            "runAfter": { "Generate_Or_Revise_Draft": ["Succeeded"] }
+          },
+          "Judge_Draft": {
+            "type": "ServiceProvider",
+            "inputs": {
+              "parameters": {
+                "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "@concat('Score this draft from 0 to 1 against: ', coalesce(triggerBody()?['draft_instructions'], 'general quality'), '. Draft: ', variables('current_draft'), '. Respond with ONLY strict JSON {\"score\": <number>, \"critique\": \"<text>\"}.')"
+                  }
+                ],
+                "temperature": 0.2
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureOpenAI",
+                "operationId": "getChatCompletions",
+                "serviceProviderId": "/serviceProviders/openai"
+              }
+            },
+            "runAfter": { "Set_current_draft": ["Succeeded"] }
+          },
+          "Parse_Judge_Response": {
+            "type": "ParseJson",
+            "inputs": {
+              "content": "@coalesce(outputs('Judge_Draft')?['body']?['choices']?[0]?['message']?['content'], '{\"score\":0,\"critique\":\"parse failed\"}')",
+              "schema": {
+                "type": "object",
+                "properties": { "score": { "type": "number" }, "critique": { "type": "string" } }
+              }
+            },
+            "runAfter": { "Judge_Draft": ["Succeeded"] }
+          },
+          "Set_current_score": {
+            "type": "SetVariable",
+            "description": "BROKEN ON PURPOSE — takes the judge's self-reported score directly, with no deterministic check able to override it. Compare against the working version's Set_current_score, which forces the score to 0 whenever the deterministic check fails, regardless of what the judge said. See broken/README.md.",
+            "inputs": {
+              "name": "current_score",
+              "value": "@body('Parse_Judge_Response')?['score']"
+            },
+            "runAfter": { "Parse_Judge_Response": ["Succeeded"] }
+          },
+          "Set_last_critique": {
+            "type": "SetVariable",
+            "inputs": { "name": "last_critique", "value": "@body('Parse_Judge_Response')?['critique']" },
+            "runAfter": { "Set_current_score": ["Succeeded"] }
+          },
+          "Increment_Iteration": {
+            "type": "IncrementVariable",
+            "inputs": { "name": "iteration", "value": 1 },
+            "runAfter": { "Set_last_critique": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_current_score": ["Succeeded"] }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "headers": { "Content-Type": "application/json" },
+          "body": {
+            "final_answer": "@variables('current_draft')",
+            "iterations_used": "@variables('iteration')",
+            "final_score": "@variables('current_score')"
+          }
+        },
+        "runAfter": { "Until_Good_Enough_Or_Out_Of_Iterations": ["Succeeded"] }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

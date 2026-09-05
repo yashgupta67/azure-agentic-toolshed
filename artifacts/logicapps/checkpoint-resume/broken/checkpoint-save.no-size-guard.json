@@ -1,0 +1,64 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Save progress for a long-running task so it can resume later.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "session_id": { "type": "string" },
+              "state": { "type": "object" }
+            },
+            "required": ["session_id", "state"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Insert_or_Update_Entity": {
+        "type": "ServiceProvider",
+        "description": "Identical to the working version's Table Storage write, but with no size check beforehand — see ../checkpoint-save.trigger-and-response.json for the guarded version and broken/README.md for what happens without it.",
+        "inputs": {
+          "parameters": {
+            "tableName": "Checkpoints",
+            "entity": {
+              "PartitionKey": "session",
+              "RowKey": "@triggerBody()?['session_id']",
+              "StatePayload": "@string(triggerBody()?['state'])",
+              "SavedAt": "@utcNow()"
+            }
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "upsertEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": {}
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "headers": { "Content-Type": "application/json" },
+          "body": {
+            "saved": true,
+            "session_id": "@triggerBody()?['session_id']",
+            "saved_at": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Insert_or_Update_Entity": ["Succeeded"]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

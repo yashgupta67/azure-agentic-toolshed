@@ -1,0 +1,15 @@
+{
+  "_comment": "App-level file for the shared Logic App Standard resource — one connections.json per Logic App, shared by every workflow inside it. Built-in connector actions (Azure Tables, Azure Blob, etc.) in any workflow.json reference a connection name defined here.",
+  "_how_to_install_this_file": "Portal -> your Logic App (Standard) -> Development Tools -> Advanced Tools -> Go -> Debug console -> CMD -> navigate to site/wwwroot -> edit connections.json there and paste this content (creating it if it doesn't exist), OR use the VS Code Azure Logic Apps extension's local project view, which shows this file directly. The simplest path if you're unsure: add any one built-in connector action (e.g. Azure Tables -> Get Entity) via the designer once first — Azure auto-creates this file with a correct 'azureTableStorage' entry — then you only need to confirm the entry below matches, rather than typing this file by hand.",
+  "serviceProviderConnections": {
+    "azureTableStorage": {
+      "parameterValues": {
+        "storageAccountConnectionString": "@appsetting('AzureWebJobsStorage')"
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/AzureTables"
+      },
+      "displayName": "azureTableStorage"
+    }
+  }
+}

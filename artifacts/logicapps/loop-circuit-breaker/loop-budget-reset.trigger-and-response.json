@@ -1,0 +1,75 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this once at the very start of a new agent session or conversation, before the first call to loop-budget-check, to clear any previous step count for this session_id. Do not call this mid-loop — it erases progress tracking and would let a runaway loop continue past its real step count. Only call it when you are certain this is the beginning of a new, distinct agent run.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "A unique identifier for the new agent session or conversation. Use the same value on every subsequent loop-budget-check call for this run."
+              },
+              "max_steps": {
+                "type": "integer",
+                "description": "The step budget to set for this new session. Optional — if omitted, defaults to 25."
+              }
+            },
+            "required": [
+              "session_id"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Insert_or_Update_Entity": {
+        "type": "ServiceProvider",
+        "description": "UNVERIFIED SHAPE — best-effort reconstruction of the Azure Tables built-in connector's 'Insert or Update Entity' action, not confirmed against a live deployment. If this shows an error after pasting, delete it and re-add 'Azure Tables -> Insert or Update Entity' via the designer: Table name = LoopBudgets, Partition key = session, Row key = triggerBody()?['session_id'], then set entity properties StepCount = 0, MaxSteps = coalesce(triggerBody()?['max_steps'], 25).",
+        "inputs": {
+          "parameters": {
+            "tableName": "LoopBudgets",
+            "entity": {
+              "PartitionKey": "session",
+              "RowKey": "@triggerBody()?['session_id']",
+              "StepCount": 0,
+              "MaxSteps": "@int(coalesce(triggerBody()?['max_steps'], 25))",
+              "LastUpdated": "@utcNow()"
+            }
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "upsertEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": {}
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "reset": true,
+            "session_id": "@triggerBody()?['session_id']",
+            "max_steps": "@int(coalesce(triggerBody()?['max_steps'], 25))"
+          }
+        },
+        "runAfter": {
+          "Insert_or_Update_Entity": ["Succeeded"]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

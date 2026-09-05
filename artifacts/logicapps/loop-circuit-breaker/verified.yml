@@ -1,0 +1,25 @@
+status: preview # working | preview | broken-upstream | stale
+verified_on: null
+azure:
+  service: logic-apps-standard
+  sku: WS1
+  transport: streamable-http
+  backing_store: azure-table-storage
+sources:
+  - url: https://learn.microsoft.com/en-us/azure/logic-apps/create-model-context-protocol-server-standard
+    ms_date: 2026-02-25
+    hash: "sha256:3c72b46ea924a4eeaa55cf8214c2961eb982319a9ae251801413d2901b7fc083"
+hosts_tested:
+  foundry: untested
+  copilot-studio: untested
+  vscode: untested
+  claude-desktop: untested
+notes: >
+  Designed but not yet deployed. The trigger/response contract and control
+  flow are standard Workflow Definition Language and should paste in as-is;
+  the two ServiceProvider (Azure Tables) actions are a best-effort
+  reconstruction, flagged inline in the JSON. When you build this, replace
+  status with "working" (or "broken-upstream" if something in the platform
+  itself is broken), fill in verified_on and hosts_tested, and note here
+  specifically whether the pasted ServiceProvider actions worked as-is or
+  needed the designer fallback described in their description fields.

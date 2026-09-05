@@ -1,0 +1,49 @@
+name: Check sources for staleness
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml requests
+      - name: Run staleness check
+        id: check
+        run: |
+          python3 scripts/check_sources.py | tee staleness-report.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Commit updated verified.yml files
+        run: |
+          git config user.name "staleness-bot"
+          git config user.email "actions@github.com"
+          git add artifacts/**/verified.yml
+          git diff --cached --quiet || git commit -m "chore: update verified.yml hashes/status from staleness check"
+          git push
+
+      - name: Open an issue if anything went stale
+        if: contains(steps.check.outputs.exit_code, '1')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('staleness-report.txt', 'utf8');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Staleness check: one or more artifacts drifted from their source',
+              body: '```\n' + report + '\n```\n\nThese artifacts were auto-flipped to `status: stale` in their `verified.yml`. Re-verify and update the source hash once reviewed.',
+              labels: ['stale-artifact']
+            });

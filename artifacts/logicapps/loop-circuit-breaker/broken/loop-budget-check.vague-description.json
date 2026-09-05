@@ -1,0 +1,156 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Checks the current loop budget.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "max_steps": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_new_step_count": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [ { "name": "new_step_count", "type": "integer", "value": 0 } ]
+        },
+        "runAfter": {}
+      },
+      "Initialize_effective_max_steps": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [ { "name": "effective_max_steps", "type": "integer", "value": 0 } ]
+        },
+        "runAfter": { "Initialize_new_step_count": ["Succeeded"] }
+      },
+      "Get_Entity": {
+        "type": "ServiceProvider",
+        "description": "Identical logic to the working version — see ../loop-budget-check.trigger-and-response.json for the fallback if this errors. Only the trigger description and schema above differ, deliberately, to demonstrate the failure documented in broken/README.md.",
+        "inputs": {
+          "parameters": {
+            "tableName": "LoopBudgets",
+            "partitionKey": "session",
+            "rowKey": "@triggerBody()?['session_id']"
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "getEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": { "Initialize_effective_max_steps": ["Succeeded"] }
+      },
+      "Was_Found": {
+        "type": "If",
+        "expression": { "and": [ { "equals": ["@actions('Get_Entity')['status']", "Succeeded"] } ] },
+        "actions": {
+          "Set_new_step_count_from_existing": {
+            "type": "SetVariable",
+            "inputs": { "name": "new_step_count", "value": "@add(int(coalesce(outputs('Get_Entity')?['body']?['StepCount'], 0)), 1)" },
+            "runAfter": {}
+          },
+          "Set_effective_max_steps_from_existing": {
+            "type": "SetVariable",
+            "inputs": { "name": "effective_max_steps", "value": "@int(coalesce(outputs('Get_Entity')?['body']?['MaxSteps'], 25))" },
+            "runAfter": { "Set_new_step_count_from_existing": ["Succeeded"] }
+          }
+        },
+        "else": {
+          "actions": {
+            "Set_new_step_count_first_call": {
+              "type": "SetVariable",
+              "inputs": { "name": "new_step_count", "value": 1 },
+              "runAfter": {}
+            },
+            "Set_effective_max_steps_first_call": {
+              "type": "SetVariable",
+              "inputs": { "name": "effective_max_steps", "value": "@int(coalesce(triggerBody()?['max_steps'], 25))" },
+              "runAfter": { "Set_new_step_count_first_call": ["Succeeded"] }
+            }
+          }
+        },
+        "runAfter": { "Get_Entity": ["Succeeded", "Failed"] }
+      },
+      "Insert_or_Update_Entity": {
+        "type": "ServiceProvider",
+        "inputs": {
+          "parameters": {
+            "tableName": "LoopBudgets",
+            "entity": {
+              "PartitionKey": "session",
+              "RowKey": "@triggerBody()?['session_id']",
+              "StepCount": "@variables('new_step_count')",
+              "MaxSteps": "@variables('effective_max_steps')",
+              "LastUpdated": "@utcNow()"
+            }
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "upsertEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": { "Was_Found": ["Succeeded"] }
+      },
+      "Exceeded_Budget": {
+        "type": "If",
+        "expression": { "and": [ { "greater": ["@variables('new_step_count')", "@variables('effective_max_steps')"] } ] },
+        "actions": {
+          "Response_Stop": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 200,
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "allowed": false,
+                "steps_used": "@variables('new_step_count')",
+                "steps_remaining": 0,
+                "max_steps": "@variables('effective_max_steps')",
+                "reason": "Step budget exceeded for this session. Halt the loop and report this to the user instead of continuing."
+              }
+            },
+            "runAfter": {}
+          }
+        },
+        "else": {
+          "actions": {
+            "Response_Continue": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "headers": { "Content-Type": "application/json" },
+                "body": {
+                  "allowed": true,
+                  "steps_used": "@variables('new_step_count')",
+                  "steps_remaining": "@sub(variables('effective_max_steps'), variables('new_step_count'))",
+                  "max_steps": "@variables('effective_max_steps')",
+                  "reason": null
+                }
+              },
+              "runAfter": {}
+            }
+          }
+        },
+        "runAfter": { "Insert_or_Update_Entity": ["Succeeded"] }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

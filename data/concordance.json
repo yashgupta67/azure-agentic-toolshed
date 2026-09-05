@@ -1,0 +1,23 @@
+{
+  "$schema_note": "Old name -> new name -> where -> when confirmed. Add entries only once confirmed against a changelog or release note, never from memory.",
+  "version": "0.1.0",
+  "last_updated": "2026-09-05",
+  "entries": [
+    {
+      "old_name": "AzureAISearchAgentTool",
+      "new_name": "AzureAISearchTool",
+      "package": "azure-ai-projects",
+      "kind": "python-sdk-class-rename",
+      "confirmed": false,
+      "note": "Carried over from the original research behind this project; needs re-confirmation against the current azure-ai-projects changelog before being marked confirmed."
+    },
+    {
+      "old_name": "AgentsClient",
+      "new_name": "AgentAdministrationClient",
+      "package": "azure-ai-projects",
+      "kind": "python-sdk-class-rename",
+      "confirmed": false,
+      "note": "Same as above — needs re-confirmation before this entry is trusted by downstream tooling."
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this periodically during a long-running agent task (e.g. after completing each major step or batch) to save your current progress, so the task can resume from here instead of restarting from scratch if the session is interrupted or crashes. Pass a session_id and a state object containing everything needed to resume. Do not call this for short tasks that complete in a single pass — checkpointing only pays off when restarting from zero would actually be costly. Keep the state payload compact (well under 64KB serialized) — this is backed by Table Storage, not built for large documents.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "A unique identifier for the task/session being checkpointed. Use the same value on every checkpoint-save call and on the matching checkpoint-load call."
+              },
+              "state": {
+                "type": "object",
+                "description": "A compact JSON object with everything needed to resume the task — e.g. completed step index, partial results, IDs still to process. Keep this small; this is not a place to store large documents or full transcripts."
+              }
+            },
+            "required": [
+              "session_id",
+              "state"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Is_State_Too_Large": {
+        "type": "If",
+        "description": "Deterministic size guard — Table Storage string properties cap out around 64KB. Failing fast here with a clear message is much easier to act on than the raw Table Storage error you'd get by skipping this and letting Insert_or_Update_Entity fail. See broken/README.md for what happens without this check.",
+        "expression": {
+          "and": [
+            { "greater": ["@length(string(triggerBody()?['state']))", 60000] }
+          ]
+        },
+        "actions": {
+          "Response_Too_Large": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 200,
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "saved": false,
+                "session_id": "@triggerBody()?['session_id']",
+                "saved_at": null,
+                "error": "State payload is too large to checkpoint (over ~60KB serialized). Summarize or trim it before calling checkpoint-save, or switch this tool's backing store to Blob Storage for large state."
+              }
+            },
+            "runAfter": {}
+          }
+        },
+        "else": {
+          "actions": {
+            "Insert_or_Update_Entity": {
+              "type": "ServiceProvider",
+              "description": "UNVERIFIED SHAPE — best-effort reconstruction of the Azure Tables built-in connector's 'Insert or Update Entity' action, same pattern as artifacts/logicapps/loop-circuit-breaker. Requires the same one-time connection bootstrap described in that artifact's README (connectionName 'azureTableStorage'). If this errors after pasting, delete it and re-add 'Azure Tables -> Insert or Update Entity' via the designer: Table name = Checkpoints, Partition key = session, Row key = triggerBody()?['session_id'], entity properties StatePayload = string(triggerBody()?['state']), SavedAt = utcNow().",
+              "inputs": {
+                "parameters": {
+                  "tableName": "Checkpoints",
+                  "entity": {
+                    "PartitionKey": "session",
+                    "RowKey": "@triggerBody()?['session_id']",
+                    "StatePayload": "@string(triggerBody()?['state'])",
+                    "SavedAt": "@utcNow()"
+                  }
+                },
+                "serviceProviderConfiguration": {
+                  "connectionName": "azureTableStorage",
+                  "operationId": "upsertEntity",
+                  "serviceProviderId": "/serviceProviders/AzureTables"
+                }
+              },
+              "runAfter": {}
+            },
+            "Response_Saved": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "headers": { "Content-Type": "application/json" },
+                "body": {
+                  "saved": true,
+                  "session_id": "@triggerBody()?['session_id']",
+                  "saved_at": "@utcNow()",
+                  "error": null
+                }
+              },
+              "runAfter": {
+                "Insert_or_Update_Entity": ["Succeeded"]
+              }
+            }
+          }
+        },
+        "runAfter": {}
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

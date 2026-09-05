@@ -1,0 +1,63 @@
+name: Validate artifacts
+
+on:
+  pull_request:
+    paths:
+      - "artifacts/**"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml jsonschema requests
+
+      - name: Validate JSON syntax of every workflow file
+        run: |
+          status=0
+          while IFS= read -r -d '' file; do
+            python3 -m json.tool "$file" > /dev/null || { echo "Invalid JSON: $file"; status=1; }
+          done < <(find artifacts -name "*.json" -not -path "*/infra/*" -print0)
+          exit $status
+
+      - name: Lint tool descriptions
+        run: python3 scripts/lint_tool_descriptions.py
+
+      - name: Validate verified.yml against schema
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys, yaml, jsonschema
+          from pathlib import Path
+
+          schema = json.loads(Path("data/verified.schema.json").read_text())
+          failures = []
+          for path in Path("artifacts").rglob("verified.yml"):
+              data = yaml.safe_load(path.read_text())
+              # PyYAML parses unquoted ISO dates (e.g. ms_date: 2026-02-25) as
+              # native date objects, not strings. Normalize through JSON so the
+              # schema's "type": "string" checks see what's actually on disk.
+              data = json.loads(json.dumps(data, default=str))
+              try:
+                  jsonschema.validate(data, schema)
+              except jsonschema.ValidationError as exc:
+                  failures.append(f"{path}: {exc.message}")
+
+          if failures:
+              print("verified.yml schema violations:")
+              for f in failures:
+                  print(f"  - {f}")
+              sys.exit(1)
+          print("All verified.yml files are schema-valid.")
+          PYEOF
+
+      - name: Bicep lint (if Azure CLI available)
+        run: |
+          if command -v az >/dev/null 2>&1 && az bicep version >/dev/null 2>&1; then
+            find artifacts -name "*.bicep" -exec az bicep build --file {} --stdout \; > /dev/null
+          else
+            echo "Azure CLI / bicep not available on this runner — skipping. Consider azure/setup-bicep-action if strict validation is needed."
+          fi

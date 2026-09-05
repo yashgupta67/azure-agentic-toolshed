@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "verified.yml",
+  "description": "Machine-checked verification state for one deployable artifact in this repo.",
+  "type": "object",
+  "required": ["status", "azure", "sources", "hosts_tested"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["working", "preview", "broken-upstream", "stale"]
+    },
+    "verified_on": {
+      "type": ["string", "null"],
+      "format": "date"
+    },
+    "azure": {
+      "type": "object",
+      "required": ["service"],
+      "properties": {
+        "service": { "type": "string" },
+        "sku": { "type": "string" },
+        "transport": { "type": "string", "enum": ["streamable-http", "sse"] },
+        "backing_store": { "type": "string" }
+      }
+    },
+    "sdk": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "ms_date"],
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "ms_date": { "type": "string", "format": "date" },
+          "hash": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "hosts_tested": {
+      "type": "object",
+      "properties": {
+        "foundry": { "type": "string", "enum": ["pass", "fail", "untested"] },
+        "copilot-studio": { "type": "string", "enum": ["pass", "fail", "untested"] },
+        "vscode": { "type": "string", "enum": ["pass", "fail", "untested"] },
+        "claude-desktop": { "type": "string", "enum": ["pass", "fail", "untested"] }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

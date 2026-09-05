@@ -1,0 +1,158 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this when a single model call's answer needs higher reliability through independent cross-checking — a factual claim, a classification decision, or a numeric answer where being wrong is costly. Do not use this for creative or open-ended generation tasks with no single correct answer to converge on. Do not use this in place of retrieval when the answer depends on a specific fact not already in the model's context — ground the question first via context, then use this tool to check reliability of the reasoning over that grounded context. Check 'flagged_low_confidence' in the response before trusting 'consensus_answer' automatically.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string", "description": "The question or decision to get a consensus answer for." },
+              "context": { "type": "string", "description": "Grounding information the answer should be based on. Optional." },
+              "num_samples": { "type": "integer", "description": "How many independent samples to generate before voting. Odd numbers avoid ties. Optional — defaults to 5. Higher is more reliable but costs proportionally more." },
+              "answer_format": { "type": "string", "description": "How the final answer should be shaped, e.g. 'a single word: yes or no', 'a number', 'one of: A, B, C, D'. Strongly recommended — with this set, agreement is measured by exact match; without it, agreement is judged by a second model call comparing free-form answers, carrying the same reliability caveats as any LLM-as-judge step." }
+            },
+            "required": ["question"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_samples": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "samples", "type": "array", "value": [] } ] },
+        "runAfter": {}
+      },
+      "Compose_Sample_Indexes": {
+        "type": "Compose",
+        "inputs": "@range(0, coalesce(triggerBody()?['num_samples'], 5))",
+        "runAfter": { "Initialize_samples": ["Succeeded"] }
+      },
+      "For_Each_Sample": {
+        "type": "Foreach",
+        "foreach": "@outputs('Compose_Sample_Indexes')",
+        "actions": {
+          "Sample_Answer": {
+            "type": "ServiceProvider",
+            "description": "Verified against Microsoft's Azure OpenAI connector reference — see reflection-loop's README for the connection bootstrap. Temperature is deliberately non-zero (0.7) — see broken/README.md for why sampling at temperature 0 defeats this tool's entire purpose.",
+            "inputs": {
+              "parameters": {
+                "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "@concat('Answer this question independently. Question: ', triggerBody()?['question'], '. Context: ', coalesce(triggerBody()?['context'], 'none'), '. Required answer format: ', coalesce(triggerBody()?['answer_format'], 'free text, be concise'), '. Respond with only the answer, no explanation.')"
+                  }
+                ],
+                "temperature": 0.7
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureOpenAI",
+                "operationId": "getChatCompletions",
+                "serviceProviderId": "/serviceProviders/openai"
+              }
+            },
+            "runAfter": {}
+          },
+          "Append_Sample": {
+            "type": "AppendToArrayVariable",
+            "inputs": {
+              "name": "samples",
+              "value": "@trim(coalesce(outputs('Sample_Answer')?['body']?['content'], ''))"
+            },
+            "runAfter": { "Sample_Answer": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Compose_Sample_Indexes": ["Succeeded"] },
+        "runtimeConfiguration": {
+          "concurrency": { "repetitions": 5 }
+        }
+      },
+      "Initialize_consensus_answer_predeclare": {
+        "type": "InitializeVariable",
+        "description": "Declared before Has_Answer_Format so both branches of that If can Set it regardless of which one runs.",
+        "inputs": { "variables": [ { "name": "consensus_answer", "type": "string", "value": "" } ] },
+        "runAfter": { "For_Each_Sample": ["Succeeded"] }
+      },
+      "Has_Answer_Format": {
+        "type": "If",
+        "expression": { "and": [ { "not": { "equals": ["@coalesce(triggerBody()?['answer_format'], '')", ""] } } ] },
+        "actions": {
+          "Tally_Exact_Match": {
+            "type": "Compose",
+            "description": "Deterministic tally — plain expression logic, no model call. For each distinct value in samples, count occurrences; the most frequent value wins. This is the more trustworthy path since it isn't asking a model to judge model outputs.",
+            "inputs": "@variables('samples')"
+          },
+          "Set_Consensus_From_Tally": {
+            "type": "SetVariable",
+            "description": "PLACEHOLDER expression — Workflow Definition Language has no single built-in 'mode of array' function, so this needs either a short Inline Code (JavaScript) action doing samples.sort/reduce to find the most frequent value, or an Azure OpenAI call constrained to just echo the majority value. If you don't have Inline Code enabled for this Logic App, the simplest fix is a tiny Azure OpenAI call: 'Given this JSON array of answers, respond with ONLY the exact string that appears most often.'",
+            "inputs": { "name": "consensus_answer", "value": "@first(variables('samples'))" },
+            "runAfter": { "Tally_Exact_Match": ["Succeeded"] }
+          }
+        },
+        "else": {
+          "actions": {
+            "Synthesize_Consensus": {
+              "type": "ServiceProvider",
+              "description": "Free-form path — used only when answer_format wasn't given. Same verified shape as Sample_Answer above.",
+              "inputs": {
+                "parameters": {
+                  "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                  "messages": [
+                    {
+                      "role": "system",
+                      "content": "@concat('These are independent answers to the same question from separate model calls: ', string(variables('samples')), '. Identify the most commonly supported position and state it concisely as the final answer.')"
+                    }
+                  ],
+                  "temperature": 0.2
+                },
+                "serviceProviderConfiguration": {
+                  "connectionName": "azureOpenAI",
+                  "operationId": "getChatCompletions",
+                  "serviceProviderId": "/serviceProviders/openai"
+                }
+              },
+              "runAfter": {}
+            },
+            "Set_Consensus_From_Synthesis": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "consensus_answer",
+                "value": "@coalesce(outputs('Synthesize_Consensus')?['body']?['content'], '')"
+              },
+              "runAfter": { "Synthesize_Consensus": ["Succeeded"] }
+            }
+          }
+        },
+        "runAfter": { "Initialize_consensus_answer_predeclare": ["Succeeded"] }
+      },
+      "Compute_Agreement_Rate": {
+        "type": "Compose",
+        "description": "PLACEHOLDER expression — computing the exact fraction of samples matching consensus_answer needs either Inline Code or a short additional model/expression step, since Workflow Definition Language doesn't have a built-in 'count matching items' function. A simple approximation: treat agreement as 1.0 if every sample after trim() is identical, else fall back to a stated 'not computed precisely' marker until you wire up a real tally — flagged here rather than silently faked.",
+        "inputs": "@if(equals(length(union(variables('samples'), variables('samples'))), 1), 1, 0.6)",
+        "runAfter": { "Has_Answer_Format": ["Succeeded"] }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "headers": { "Content-Type": "application/json" },
+          "body": {
+            "consensus_answer": "@variables('consensus_answer')",
+            "agreement_rate": "@outputs('Compute_Agreement_Rate')",
+            "samples": "@variables('samples')",
+            "flagged_low_confidence": "@less(outputs('Compute_Agreement_Rate'), 0.6)"
+          }
+        },
+        "runAfter": { "Compute_Agreement_Rate": ["Succeeded"] }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

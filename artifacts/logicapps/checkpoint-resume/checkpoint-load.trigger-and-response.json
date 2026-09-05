@@ -1,0 +1,93 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this at the very start of a long-running task, before doing any work, to check whether a previous checkpoint exists for this session_id. If found is true in the response, resume from the returned state instead of starting over. If found is false, proceed normally from the beginning. Always call this before the first checkpoint-save for a given session_id, so you don't overwrite or miss existing progress.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "The unique identifier for the task/session to check for a saved checkpoint."
+              }
+            },
+            "required": [
+              "session_id"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Get_Entity": {
+        "type": "ServiceProvider",
+        "description": "UNVERIFIED SHAPE — same pattern and same one-time connection bootstrap as artifacts/logicapps/loop-circuit-breaker. If this errors after pasting, delete it and re-add 'Azure Tables -> Get Entity' via the designer: Table name = Checkpoints, Partition key = session, Row key = triggerBody()?['session_id'].",
+        "inputs": {
+          "parameters": {
+            "tableName": "Checkpoints",
+            "partitionKey": "session",
+            "rowKey": "@triggerBody()?['session_id']"
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "azureTableStorage",
+            "operationId": "getEntity",
+            "serviceProviderId": "/serviceProviders/AzureTables"
+          }
+        },
+        "runAfter": {}
+      },
+      "Was_Found": {
+        "type": "If",
+        "expression": {
+          "and": [
+            { "equals": ["@actions('Get_Entity')['status']", "Succeeded"] }
+          ]
+        },
+        "actions": {
+          "Response_Found": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 200,
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "found": true,
+                "state": "@json(coalesce(outputs('Get_Entity')?['body']?['StatePayload'], '{}'))",
+                "saved_at": "@outputs('Get_Entity')?['body']?['SavedAt']"
+              }
+            },
+            "runAfter": {}
+          }
+        },
+        "else": {
+          "actions": {
+            "Response_Not_Found": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "headers": { "Content-Type": "application/json" },
+                "body": {
+                  "found": false,
+                  "state": null,
+                  "saved_at": null
+                }
+              },
+              "runAfter": {}
+            }
+          }
+        },
+        "runAfter": {
+          "Get_Entity": ["Succeeded", "Failed"]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

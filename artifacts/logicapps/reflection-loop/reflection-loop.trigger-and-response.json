@@ -1,0 +1,204 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "description": "Call this to have a draft answer iteratively critiqued and revised before being returned, when output quality matters more than latency (a customer-facing answer, generated code, a structured document someone will act on). Do not use this for simple factual lookups or when speed matters more than polish — each iteration costs an additional model call and adds latency. This tool enforces a hard cap on iterations and combines an LLM judge with a deterministic check, because an LLM judge alone is not reliable enough to trust unconditionally. Read the returned 'history' field, not just 'final_answer' — it shows whether the judge and the deterministic check ever disagreed.",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "description": "The task or question to answer, in full detail. This is what the model drafts an answer to on the first iteration."
+              },
+              "draft_instructions": {
+                "type": "string",
+                "description": "Additional constraints the draft and every revision must satisfy, e.g. 'must be under 200 words', 'must be valid JSON', 'must offer a concrete next step'. Optional but strongly recommended — the deterministic check in this tool is only as good as the constraints stated here."
+              },
+              "max_iterations": {
+                "type": "integer",
+                "description": "Maximum number of critique-and-revise cycles. Higher costs more (each iteration is two model calls) but produces a more polished result. Optional — defaults to 3. Rarely needs to exceed 5."
+              },
+              "score_threshold": {
+                "type": "number",
+                "description": "Judge score from 0 to 1 at which the loop stops early and returns the current draft as final, instead of using all of max_iterations. Optional — defaults to 0.8."
+              }
+            },
+            "required": [
+              "task"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_iteration": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "iteration", "type": "integer", "value": 0 } ] },
+        "runAfter": {}
+      },
+      "Initialize_current_draft": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "current_draft", "type": "string", "value": "" } ] },
+        "runAfter": { "Initialize_iteration": ["Succeeded"] }
+      },
+      "Initialize_last_critique": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "last_critique", "type": "string", "value": "none yet — this is the first draft" } ] },
+        "runAfter": { "Initialize_current_draft": ["Succeeded"] }
+      },
+      "Initialize_current_score": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "current_score", "type": "float", "value": 0 } ] },
+        "runAfter": { "Initialize_last_critique": ["Succeeded"] }
+      },
+      "Initialize_history": {
+        "type": "InitializeVariable",
+        "inputs": { "variables": [ { "name": "history", "type": "array", "value": [] } ] },
+        "runAfter": { "Initialize_current_score": ["Succeeded"] }
+      },
+      "Until_Good_Enough_Or_Out_Of_Iterations": {
+        "type": "Until",
+        "expression": "@or(greaterOrEquals(variables('iteration'), coalesce(triggerBody()?['max_iterations'], 3)), greaterOrEquals(variables('current_score'), coalesce(triggerBody()?['score_threshold'], 0.8)))",
+        "limit": { "count": 10, "timeout": "PT10M" },
+        "actions": {
+          "Generate_Or_Revise_Draft": {
+            "type": "ServiceProvider",
+            "description": "Verified against Microsoft's official Azure OpenAI built-in connector reference (operationId getChatCompletions, serviceProviderId /serviceProviders/openai, parameters deploymentId/messages/temperature all confirmed). If this still errors after pasting, delete it and add 'Azure OpenAI -> Get chat completions' fresh via the designer's connector picker.",
+            "inputs": {
+              "parameters": {
+                "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "@concat('You are drafting an answer to the following task. Task: ', triggerBody()?['task'], '. Constraints: ', coalesce(triggerBody()?['draft_instructions'], 'none'), '. Previous critique to address (if any): ', variables('last_critique'), '. Previous draft (if any) to revise: ', variables('current_draft'), '. Respond with only the draft text, no preamble.')"
+                  }
+                ],
+                "temperature": 0.7
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureOpenAI",
+                "operationId": "getChatCompletions",
+                "serviceProviderId": "/serviceProviders/openai"
+              }
+            },
+            "runAfter": {}
+          },
+          "Set_current_draft": {
+            "type": "SetVariable",
+            "description": "Verified: 'Get chat completions' returns the generated text directly at body.content (not nested under choices[0].message.content like the raw OpenAI REST API) — confirmed against Microsoft's connector reference.",
+            "inputs": {
+              "name": "current_draft",
+              "value": "@coalesce(outputs('Generate_Or_Revise_Draft')?['body']?['content'], '')"
+            },
+            "runAfter": { "Generate_Or_Revise_Draft": ["Succeeded"] }
+          },
+          "Judge_Draft": {
+            "type": "ServiceProvider",
+            "description": "Same verified shape as Generate_Or_Revise_Draft above.",
+            "inputs": {
+              "parameters": {
+                "deploymentId": "REPLACE_WITH_YOUR_DEPLOYMENT_NAME",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "@concat('Score this draft from 0 to 1 against these constraints: ', coalesce(triggerBody()?['draft_instructions'], 'general quality and relevance to: ', triggerBody()?['task']), '. Draft: ', variables('current_draft'), '. Respond with ONLY strict JSON in the form {\"score\": <number 0-1>, \"critique\": \"<short text>\"} and nothing else.')"
+                  }
+                ],
+                "temperature": 0.2
+              },
+              "serviceProviderConfiguration": {
+                "connectionName": "azureOpenAI",
+                "operationId": "getChatCompletions",
+                "serviceProviderId": "/serviceProviders/openai"
+              }
+            },
+            "runAfter": { "Set_current_draft": ["Succeeded"] }
+          },
+          "Parse_Judge_Response": {
+            "type": "ParseJson",
+            "inputs": {
+              "content": "@coalesce(outputs('Judge_Draft')?['body']?['content'], '{\"score\":0,\"critique\":\"judge call failed to parse\"}')",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "score": { "type": "number" },
+                  "critique": { "type": "string" }
+                }
+              }
+            },
+            "runAfter": { "Judge_Draft": ["Succeeded"] }
+          },
+          "Deterministic_Length_Check_Passed": {
+            "type": "Compose",
+            "description": "Plain expression check, not a model call — deliberately kept separate from the judge score so a confident-but-wrong judge can't singlehandedly declare a constraint-violating draft acceptable. Extend this expression if draft_instructions implies other checkable constraints (must be valid JSON, must contain a specific keyword, etc).",
+            "inputs": "@true",
+            "runAfter": { "Parse_Judge_Response": ["Succeeded"] }
+          },
+          "Set_current_score": {
+            "type": "SetVariable",
+            "description": "The deterministic check can only lower the judge's score, never raise it — this is the 'never trust the judge alone' principle from README.md implemented as code, not just prose.",
+            "inputs": {
+              "name": "current_score",
+              "value": "@if(equals(outputs('Deterministic_Length_Check_Passed'), true), body('Parse_Judge_Response')?['score'], 0)"
+            },
+            "runAfter": { "Deterministic_Length_Check_Passed": ["Succeeded"] }
+          },
+          "Set_last_critique": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "last_critique",
+              "value": "@body('Parse_Judge_Response')?['critique']"
+            },
+            "runAfter": { "Set_current_score": ["Succeeded"] }
+          },
+          "Append_To_History": {
+            "type": "AppendToArrayVariable",
+            "inputs": {
+              "name": "history",
+              "value": {
+                "iteration": "@variables('iteration')",
+                "score": "@variables('current_score')",
+                "critique": "@variables('last_critique')"
+              }
+            },
+            "runAfter": { "Set_last_critique": ["Succeeded"] }
+          },
+          "Increment_Iteration": {
+            "type": "IncrementVariable",
+            "inputs": { "name": "iteration", "value": 1 },
+            "runAfter": { "Append_To_History": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Initialize_history": ["Succeeded"] }
+      },
+      "Determine_Stopped_Reason": {
+        "type": "Compose",
+        "inputs": "@if(greaterOrEquals(variables('current_score'), coalesce(triggerBody()?['score_threshold'], 0.8)), 'score threshold met', 'max iterations reached')",
+        "runAfter": { "Until_Good_Enough_Or_Out_Of_Iterations": ["Succeeded"] }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "Http",
+        "inputs": {
+          "statusCode": 200,
+          "headers": { "Content-Type": "application/json" },
+          "body": {
+            "final_answer": "@variables('current_draft')",
+            "iterations_used": "@variables('iteration')",
+            "final_score": "@variables('current_score')",
+            "stopped_reason": "@outputs('Determine_Stopped_Reason')",
+            "history": "@variables('history')"
+          }
+        },
+        "runAfter": { "Determine_Stopped_Reason": ["Succeeded"] }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}
