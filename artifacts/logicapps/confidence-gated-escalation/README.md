@@ -4,9 +4,9 @@ Status: <span class="status-badge status-preview">preview — not yet deployed/v
 
 ## The problem
 
-[Debate-consensus](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/debate-consensus) and similar tools can tell you *that* an answer is uncertain, but nothing automatically does anything with that signal — it's on the calling agent to notice a low `agreement_rate` and decide what to do. This tool is what to do: it's the last gate before an agent commits to an uncertain answer, packaging the full context and handing it to a human when confidence is too low, instead of the agent silently proceeding or the developer hand-wiring a Teams call every time this pattern comes up.
+[Debate-consensus](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/debate-consensus) and similar tools can tell you *that* an answer is uncertain, but nothing automatically does anything with that signal — it's on the calling agent to notice a low `agreement_rate` and decide what to do. This tool is what to do: it's the last gate before an agent commits to an uncertain answer, packaging the full context and handing it to a human when confidence is too low, instead of the agent silently proceeding or the developer hand-wiring a Teams call every time this pattern comes up.
 
-This is deliberately distinct from a Teams approval gate over a *side-effecting action* (that's [category F](https://github.com/yashgupta67/azure-agentic-toolshed/blob/main/docs/plumbing/index.md)) — this tool escalates an *answer or decision* for review, before anything downstream has acted on it.
+This is deliberately distinct from a Teams approval gate over a *side-effecting action* (that's [category F](https://github.com/yashgupta67/azure-agentic-toolshed/blob/master/docs/plumbing/index.md)) — this tool escalates an *answer or decision* for review, before anything downstream has acted on it.
 
 ## Use case
 

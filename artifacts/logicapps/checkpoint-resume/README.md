@@ -4,7 +4,7 @@ Status: <span class="status-badge status-preview">preview — not yet deployed/v
 
 ## The problem
 
-A long-running agent task that crashes, times out, or gets interrupted normally just restarts from zero — nobody publishes a simple, generic "save progress, resume from it" pair of tools for agent loops. This closes that gap the same way [loop-circuit-breaker](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/loop-circuit-breaker) closed the budget gap: two small Table-Storage-backed tools, cheap, and reusable across any long-running task regardless of what framework or model is driving it.
+A long-running agent task that crashes, times out, or gets interrupted normally just restarts from zero — nobody publishes a simple, generic "save progress, resume from it" pair of tools for agent loops. This closes that gap the same way [loop-circuit-breaker](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/loop-circuit-breaker) closed the budget gap: two small Table-Storage-backed tools, cheap, and reusable across any long-running task regardless of what framework or model is driving it.
 
 ## Use case
 
@@ -15,7 +15,7 @@ An agent working through a long multi-step task (e.g., processing a large batch 
 
 ## Build it (Azure Portal + paste JSON)
 
-This reuses the same `azureTableStorage` connection you set up in [loop-circuit-breaker](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/loop-circuit-breaker) — if you haven't built that one yet, do its first three steps (create a table, get the connection string, connect the Logic App) before continuing here.
+This reuses the same `azureTableStorage` connection you set up in [loop-circuit-breaker](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/loop-circuit-breaker) — if you haven't built that one yet, do its first three steps (create a table, get the connection string, connect the Logic App) before continuing here.
 
 <div class="steps" markdown>
 

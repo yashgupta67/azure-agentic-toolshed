@@ -14,7 +14,7 @@ An orchestrator agent (or a human developer's own agentic code) is running a loo
 
 ## Two tools, one Logic App
 
-Per this repo's convention (one workflow = one tool, and one Standard Logic App hosting many workflows — see [`artifacts/_shared-infra`](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/_shared-infra)):
+Per this repo's convention (one workflow = one tool, and one Standard Logic App hosting many workflows — see [`artifacts/_shared-infra`](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/_shared-infra)):
 
 | Workflow | Tool it becomes | Purpose |
 |---|---|---|
@@ -23,7 +23,7 @@ Per this repo's convention (one workflow = one tool, and one Standard Logic App 
 
 ## Build it (Azure Portal + paste JSON)
 
-Assumes you've already done the one-time setup in [`artifacts/_shared-infra`](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/_shared-infra) (a Resource Group, a Storage Account, and a Logic App Standard resource).
+Assumes you've already done the one-time setup in [`artifacts/_shared-infra`](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/_shared-infra) (a Resource Group, a Storage Account, and a Logic App Standard resource).
 
 <div class="steps" markdown>
 

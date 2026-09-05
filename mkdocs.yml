@@ -1,10 +1,9 @@
 site_name: Azure Agentic Toolshed
 site_description: "Working Azure agent plumbing, with receipts. Deployable MCP artifacts, failure-first docs, and machine-checked staleness for Logic Apps + Foundry agent tooling."
-# Once this repo is pushed to GitHub, fill these in, e.g.:
-# site_url: https://yashgupta67.github.io/azure-agentic-toolshed/
-# repo_name: yashgupta67/azure-agentic-toolshed
-# repo_url: https://github.com/yashgupta67/azure-agentic-toolshed
-# edit_uri: edit/main/docs/
+site_url: https://yashgupta67.github.io/azure-agentic-toolshed/
+repo_name: yashgupta67/azure-agentic-toolshed
+repo_url: https://github.com/yashgupta67/azure-agentic-toolshed
+edit_uri: edit/master/docs/
 
 theme:
   name: material

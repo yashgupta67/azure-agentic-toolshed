@@ -4,7 +4,7 @@ These aren't style preferences — each one exists because Microsoft's own docs 
 
 ## One workflow = one tool
 
-Don't build a multi-purpose workflow with a `mode` parameter. An LLM picks tools by reading descriptions; a tool that does four things has a description nobody can write well, because the description has to be vague enough to cover all four. Split it into separate workflows instead — Logic Apps Standard lets you host many workflows in one app, and MCP lets you register several of them as one logical server (see [`artifacts/_shared-infra`](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/_shared-infra)).
+Don't build a multi-purpose workflow with a `mode` parameter. An LLM picks tools by reading descriptions; a tool that does four things has a description nobody can write well, because the description has to be vague enough to cover all four. Split it into separate workflows instead — Logic Apps Standard lets you host many workflows in one app, and MCP lets you register several of them as one logical server (see [`artifacts/_shared-infra`](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/_shared-infra)).
 
 ## Write the trigger description for a model, not a human
 

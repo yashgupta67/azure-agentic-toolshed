@@ -8,11 +8,11 @@ A single model call gives you one answer with no signal about how confident that
 
 ## Use case
 
-An agent needs to classify something (is this transaction fraudulent, is this ticket a P1) where a wrong answer is expensive. Instead of one model call, it calls `debate-consensus` with `num_samples: 5`. If all 5 independent samples agree, `agreement_rate` is 1.0 and the agent proceeds with confidence. If the samples split 3-2, `agreement_rate` is 0.6 and `flagged_low_confidence` is true — the agent can route to [confidence-gated human escalation](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/confidence-gated-escalation) instead of silently trusting a shaky majority.
+An agent needs to classify something (is this transaction fraudulent, is this ticket a P1) where a wrong answer is expensive. Instead of one model call, it calls `debate-consensus` with `num_samples: 5`. If all 5 independent samples agree, `agreement_rate` is 1.0 and the agent proceeds with confidence. If the samples split 3-2, `agreement_rate` is 0.6 and `flagged_low_confidence` is true — the agent can route to [confidence-gated human escalation](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/confidence-gated-escalation) instead of silently trusting a shaky majority.
 
 ## Build it (Azure Portal + paste JSON)
 
-Needs the same Azure OpenAI connection as [reflection-loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/reflection-loop) — set that up first if you haven't already (get your endpoint/key, connect your Logic App).
+Needs the same Azure OpenAI connection as [reflection-loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/reflection-loop) — set that up first if you haven't already (get your endpoint/key, connect your Logic App).
 
 <div class="steps" markdown>
 
@@ -48,7 +48,7 @@ Everything else — `Foreach` with `runtimeConfiguration.concurrency.repetitions
 
 ## Concepts this teaches
 
-Logic Apps `For each` with parallelism, the `range` expression function, why self-consistency needs actual sampling temperature (not 0) to be meaningful, and the distinction between a deterministic tally (trustworthy) and an LLM-synthesized "consensus" (another judge call, same reliability caveats as [reflection-loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/reflection-loop)).
+Logic Apps `For each` with parallelism, the `range` expression function, why self-consistency needs actual sampling temperature (not 0) to be meaningful, and the distinction between a deterministic tally (trustworthy) and an LLM-synthesized "consensus" (another judge call, same reliability caveats as [reflection-loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/reflection-loop)).
 
 !!! note "Status and next steps"
     Designed but not yet deployed. Once built, record the actual agreement rates on a genuinely ambiguous question versus an easy one — that's the real evidence this tool works.

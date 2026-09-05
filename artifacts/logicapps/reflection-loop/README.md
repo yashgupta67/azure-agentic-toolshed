@@ -14,7 +14,7 @@ An agent needs a polished output — not a lookup, a piece of work. It calls `re
 
 ## One tool, self-contained
 
-Unlike the [loop circuit breaker](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/loop-circuit-breaker), this workflow's iteration cap is internal — it doesn't need an external budget check, because the whole critique-revise cycle runs inside a single Logic Apps `Until` loop within one MCP tool call. It does need an Azure OpenAI (or Foundry) model deployment to call.
+Unlike the [loop circuit breaker](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/loop-circuit-breaker), this workflow's iteration cap is internal — it doesn't need an external budget check, because the whole critique-revise cycle runs inside a single Logic Apps `Until` loop within one MCP tool call. It does need an Azure OpenAI (or Foundry) model deployment to call.
 
 ## Build it (Azure Portal + paste JSON)
 

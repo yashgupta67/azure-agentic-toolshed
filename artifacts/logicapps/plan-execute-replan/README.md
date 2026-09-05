@@ -4,7 +4,7 @@ Status: <span class="status-badge status-preview">preview — not yet deployed/v
 
 ## The problem
 
-[Reflection loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/reflection-loop) polishes a single deliverable through critique. This tool solves a different problem: a task that naturally decomposes into an ordered sequence of steps, where one step failing shouldn't abort the whole task — it should trigger replanning the *remaining* steps in light of what went wrong. This is the ReAct / Plan-and-Solve pattern, built as a bounded, deployable tool instead of hand-rolled orchestration code.
+[Reflection loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/reflection-loop) polishes a single deliverable through critique. This tool solves a different problem: a task that naturally decomposes into an ordered sequence of steps, where one step failing shouldn't abort the whole task — it should trigger replanning the *remaining* steps in light of what went wrong. This is the ReAct / Plan-and-Solve pattern, built as a bounded, deployable tool instead of hand-rolled orchestration code.
 
 ## Use case
 
@@ -12,7 +12,7 @@ An agent gets a task like "research competitor pricing for three products and pr
 
 ## Build it (Azure Portal + paste JSON)
 
-Needs the same Azure OpenAI connection as [reflection-loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/main/artifacts/logicapps/reflection-loop) — if you haven't set that up yet, do reflection-loop's first two steps (get your endpoint/key, connect your Logic App) before continuing here. It's one-time per Logic App, not per tool.
+Needs the same Azure OpenAI connection as [reflection-loop](https://github.com/yashgupta67/azure-agentic-toolshed/tree/master/artifacts/logicapps/reflection-loop) — if you haven't set that up yet, do reflection-loop's first two steps (get your endpoint/key, connect your Logic App) before continuing here. It's one-time per Logic App, not per tool.
 
 <div class="steps" markdown>
 

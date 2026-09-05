@@ -14,7 +14,7 @@ That's it. No instruction about *when* to call it, no instruction about what to 
 
 A 2026 RAND study on LLM-as-judge reliability found that model behavior on instruction-following is inconsistent even on much simpler, more explicit prompts than a bare one-line tool description — small wording changes measurably change compliance rates. A tool description that states a fact ("checks the budget") rather than an imperative with a consequence ("you MUST stop when this returns false") gives the model no reason to treat the response as binding. In practice, an agent given this vague version will often call the tool, receive `allowed: false`, and continue looping anyway — because nothing in the tool's description told it that response was supposed to end the conversation, not just inform it.
 
-This is exactly the class of failure the [tool-description linter](https://github.com/yashgupta67/azure-agentic-toolshed/blob/main/docs/logic-apps-mcp/mcp-gap-analysis.md#2-tool-description-quality-tooling) is meant to catch mechanically: a description under a certain length, with no "when to use / what to do with the result" framing, gets flagged before it ever reaches production.
+This is exactly the class of failure the [tool-description linter](https://github.com/yashgupta67/azure-agentic-toolshed/blob/master/docs/logic-apps-mcp/mcp-gap-analysis.md#2-tool-description-quality-tooling) is meant to catch mechanically: a description under a certain length, with no "when to use / what to do with the result" framing, gets flagged before it ever reaches production.
 
 ## The fix
 

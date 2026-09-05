@@ -1,6 +1,6 @@
 # Concordance
 
-Azure's AI stack renames things often enough that "what used to be called X" is a real, recurring search. This section publishes that mapping as versioned data, not just a table in a blog post, so other people's tooling can consume it directly — see [`data/concordance.json`](https://github.com/yashgupta67/azure-agentic-toolshed/blob/main/data/concordance.json) and [`data/retirements.json`](https://github.com/yashgupta67/azure-agentic-toolshed/blob/main/data/retirements.json).
+Azure's AI stack renames things often enough that "what used to be called X" is a real, recurring search. This section publishes that mapping as versioned data, not just a table in a blog post, so other people's tooling can consume it directly — see [`data/concordance.json`](https://github.com/yashgupta67/azure-agentic-toolshed/blob/master/data/concordance.json) and [`data/retirements.json`](https://github.com/yashgupta67/azure-agentic-toolshed/blob/master/data/retirements.json).
 
 ## Confirmed renames tracked so far
 
